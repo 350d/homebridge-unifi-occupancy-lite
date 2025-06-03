@@ -45,16 +45,8 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
           this.connect();
           this.setupAccessories();
           
-          // Only start refresh if we have residents configured
-          if (this.residents.length > 0) {
-            this.refresh()
-              .then(() => this.refreshPeriodically())
-              .catch(error => {
-                this.log.error('Failed to initialize device refresh:', error);
-              });
-          } else {
-            this.log.info('No residents configured - plugin running in standby mode');
-          }
+          // Test connection before starting refresh
+          this.testConnectionAndStart();
         } catch (error) {
           this.log.error('Failed to setup platform:', error);
         }
@@ -133,6 +125,16 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
     this.log.debug('Connecting to UniFi Controller...');
     
     try {
+      // Log configuration for debugging (without sensitive info)
+      this.log.info(`UniFi Controller: ${this.config.unifi.controller}`);
+      this.log.info(`Site: ${this.config.unifi.site || 'default'}`);
+      this.log.info(`Secure: ${this.config.unifi.secure || false}`);
+      this.log.info(`Using Site Manager API: ${this.config.unifi.useSiteManagerApi || false}`);
+      if (this.config.unifi.hostId) {
+        this.log.info(`Host ID: ${this.config.unifi.hostId}`);
+      }
+      this.log.info(`API Key provided: ${this.config.unifi.apiKey ? 'Yes' : 'No'}`);
+      
       this.unifi = new UniFiLiteClient({
         controller: this.config.unifi.controller,
         apiKey: this.config.unifi.apiKey,
@@ -326,6 +328,38 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       }
     } catch (error) {
       this.log.error('Error removing unused accessories:', error);
+    }
+  }
+
+  async testConnectionAndStart() {
+    try {
+      this.log.info('Testing UniFi API connection...');
+      
+      // Test connection first
+      const isConnected = await this.unifi.testConnection();
+      
+      if (!isConnected) {
+        this.log.warn('Failed to connect to UniFi API - will retry periodically');
+        // Still start the refresh cycle, it will keep trying
+        this.refreshPeriodically();
+        return;
+      }
+
+      this.log.info('UniFi API connection successful');
+      
+      // Only start refresh if we have residents configured or global sensor enabled
+      if (this.residents.length > 0 || this.config.globalPresenceSensor) {
+        await this.refresh();
+        this.refreshPeriodically();
+        this.log.info('Device presence monitoring started');
+      } else {
+        this.log.info('No residents or sensors configured - plugin running in standby mode');
+      }
+      
+    } catch (error) {
+      this.log.error('Failed to test connection and start refresh:', error);
+      // Still start the refresh cycle, it will keep trying
+      this.refreshPeriodically();
     }
   }
 }

@@ -39,12 +39,10 @@ export class UniFiLiteClient {
    * Make HTTP request to UniFi API using Node.js built-in modules
    */
   private async request(endpoint: string, options: any = {}): Promise<any> {
-    const url = new URL(`${this.baseUrl}${endpoint}`);
+    const url = new URL(endpoint, this.baseUrl);
     
-    const headers = {
-      'Accept': 'application/json',
+    const headers: any = {
       'Content-Type': 'application/json',
-      ...options.headers,
     };
 
     // Set appropriate auth header based on API type
@@ -74,7 +72,32 @@ export class UniFiLiteClient {
         res.on('end', () => {
           try {
             if (res.statusCode && res.statusCode >= 400) {
-              reject(new Error(`UniFi API Error: HTTP ${res.statusCode} - ${res.statusMessage}`));
+              // Enhanced error reporting with response body
+              let errorMessage = `UniFi API Error: HTTP ${res.statusCode} - ${res.statusMessage}`;
+              
+              // Try to parse error details from response
+              try {
+                const errorData = JSON.parse(data);
+                if (errorData.message) {
+                  errorMessage += ` | Message: ${errorData.message}`;
+                }
+                if (errorData.error) {
+                  errorMessage += ` | Error: ${errorData.error}`;
+                }
+                if (errorData.details) {
+                  errorMessage += ` | Details: ${JSON.stringify(errorData.details)}`;
+                }
+              } catch (parseError) {
+                // If JSON parsing fails, include raw response
+                if (data && data.length > 0 && data.length < 500) {
+                  errorMessage += ` | Response: ${data}`;
+                }
+              }
+              
+              // Add request details for debugging
+              errorMessage += ` | Request: ${options.method || 'GET'} ${url.toString()}`;
+              
+              reject(new Error(errorMessage));
               return;
             }
 
@@ -88,13 +111,13 @@ export class UniFiLiteClient {
               resolve(jsonData.data !== undefined ? jsonData.data : jsonData);
             }
           } catch (error) {
-            reject(new Error(`Failed to parse JSON response: ${error instanceof Error ? error.message : String(error)}`));
+            reject(new Error(`Failed to parse JSON response: ${error instanceof Error ? error.message : String(error)} | Raw response: ${data.substring(0, 200)}`));
           }
         });
       });
 
       req.on('error', (error) => {
-        reject(new Error(`UniFi API request failed: ${error.message}`));
+        reject(new Error(`UniFi API request failed: ${error.message} | Request: ${options.method || 'GET'} ${url.toString()}`));
       });
 
       if (options.body) {
@@ -146,7 +169,18 @@ export class UniFiLiteClient {
         );
       });
     } else {
-      return this.get(`/api/site/${site}/clients/active`);
+      // Try active clients first, fall back to all clients if endpoint doesn't exist
+      try {
+        return this.get(`/api/s/${site}/clients/active`);
+      } catch (error) {
+        // If active clients endpoint fails, try all clients
+        try {
+          return this.get(`/api/s/${site}/stat/alluser`);
+        } catch (fallbackError) {
+          // If all clients fails, try without site prefix (for older controllers)
+          return this.get(`/api/stat/sta`);
+        }
+      }
     }
   }
 
@@ -176,7 +210,13 @@ export class UniFiLiteClient {
         );
       });
     } else {
-      return this.get(`/api/site/${site}/device`);
+      // Try the standard device endpoint first
+      try {
+        return this.get(`/api/s/${site}/stat/device`);
+      } catch (error) {
+        // Fallback to older endpoint format
+        return this.get(`/api/s/${site}/device`);
+      }
     }
   }
 
