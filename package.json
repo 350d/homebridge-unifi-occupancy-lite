@@ -4,15 +4,15 @@
   "version": "0.0.1",
   "description": "Lightweight UniFi occupancy sensor plugin for Homebridge using API tokens only. Works with UDM Pro/SE, UDM, UDR and other UniFi OS devices.",
   "license": "MIT",
-  "author": "homebridge-unifi-occupancy-lite contributors",
+  "author": "350d",
   "repository": {
     "type": "git",
-    "url": "git://github.com/your-username/homebridge-unifi-occupancy-lite.git"
+    "url": "git://github.com/350d/homebridge-unifi-occupancy-lite.git"
   },
   "bugs": {
-    "url": "https://github.com/your-username/homebridge-unifi-occupancy-lite/issues"
+    "url": "https://github.com/350d/homebridge-unifi-occupancy-lite/issues"
   },
-  "homepage": "https://github.com/your-username/homebridge-unifi-occupancy-lite#readme",
+  "homepage": "https://github.com/350d/homebridge-unifi-occupancy-lite#readme",
   "engines": {
     "node": ">=16.0.0",
     "homebridge": ">=1.9.0"
