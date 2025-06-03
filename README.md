@@ -269,6 +269,6 @@ Simplified and modernized for API token authentication and resident-based tracki
 
 ## Support
 
-- 🐛 [Report Issues](https://github.com/your-username/homebridge-unifi-occupancy-lite/issues)
+- 🐛 [Report Issues](https://github.com/350d/homebridge-unifi-occupancy-lite/issues)
 - 💬 [Homebridge Discord](https://discord.gg/homebridge)
 - 📖 [Homebridge Wiki](https://github.com/homebridge/homebridge/wiki)
