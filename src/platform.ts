@@ -388,31 +388,50 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
 
   private getAlternativeConfigs() {
     const baseController = this.config.unifi.controller.replace(/\/$/, '');
+    const isHttps = baseController.startsWith('https://');
+    const baseWithoutProtocol = baseController.replace(/^https?:\/\//, '');
     
     return [
       {
         description: 'Legacy controller without proxy prefix',
-        config: { controller: baseController }
-      },
-      {
-        description: 'UniFi OS with HTTPS and proxy prefix',
         config: { 
-          controller: baseController.replace(/^http:\/\//, 'https://'),
-          secure: true 
+          controller: baseController.replace('/proxy/network', ''),
+          secure: false
         }
       },
       {
-        description: 'UniFi OS with HTTP and proxy prefix', 
+        description: 'UniFi OS with HTTPS and SSL verification disabled',
         config: { 
-          controller: baseController.replace(/^https:\/\//, 'http://'),
-          secure: false 
+          controller: `https://${baseWithoutProtocol}`.replace('/proxy/network', ''),
+          secure: false
         }
       },
       {
-        description: 'Direct API without proxy (port 8443)',
+        description: 'Direct UniFi controller (port 8443)',
         config: { 
-          controller: baseController.replace(/:(\d+)/, ':8443'),
-          secure: true 
+          controller: `https://${baseWithoutProtocol.split(':')[0]}:8443`,
+          secure: false
+        }
+      },
+      {
+        description: 'UniFi OS on port 443 without proxy',
+        config: { 
+          controller: `https://${baseWithoutProtocol.split(':')[0]}:443`,
+          secure: false
+        }
+      },
+      {
+        description: 'Legacy controller on port 8080',
+        config: { 
+          controller: `http://${baseWithoutProtocol.split(':')[0]}:8080`,
+          secure: false
+        }
+      },
+      {
+        description: 'Cloud Key on port 8443', 
+        config: {
+          controller: `https://${baseWithoutProtocol.split(':')[0]}:8443`,
+          secure: false
         }
       }
     ];

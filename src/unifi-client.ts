@@ -33,14 +33,17 @@ export class UniFiLiteClient {
       // Local controller API
       let controllerUrl = config.controller.replace(/\/$/, '');
       
-      // Check if it's a UniFi OS device (modern controllers)
-      if (controllerUrl.includes('unifi.ui.com') || 
-          controllerUrl.match(/^https?:\/\/\d+\.\d+\.\d+\.\d+/) ||
-          controllerUrl.includes('.local')) {
-        // UniFi OS devices need the proxy/network prefix
+      // Only add proxy/network if not already present and it's likely a UniFi OS device
+      if (!controllerUrl.includes('/proxy/network') && 
+          !controllerUrl.includes(':8443') &&
+          !controllerUrl.includes(':8080') &&
+          (controllerUrl.match(/^https?:\/\/\d+\.\d+\.\d+\.\d+$/) || 
+           controllerUrl.includes('.local') ||
+           controllerUrl.includes('unifi.ui.com'))) {
+        // Modern UniFi OS devices typically need the proxy prefix
         this.baseUrl = `${controllerUrl}/proxy/network`;
       } else {
-        // Legacy controllers or Cloud Key devices
+        // Use URL as-is for legacy controllers or when proxy is already specified
         this.baseUrl = controllerUrl;
       }
     }
@@ -50,7 +53,9 @@ export class UniFiLiteClient {
    * Make HTTP request to UniFi API using Node.js built-in modules
    */
   private async request(endpoint: string, options: any = {}): Promise<any> {
-    const url = new URL(endpoint, this.baseUrl);
+    // Properly construct full URL by concatenating baseUrl and endpoint
+    const fullUrl = `${this.baseUrl}${endpoint}`;
+    const url = new URL(fullUrl);
     
     const headers: any = {
       'Content-Type': 'application/json',
@@ -106,7 +111,7 @@ export class UniFiLiteClient {
               }
               
               // Add request details for debugging
-              errorMessage += ` | Request: ${options.method || 'GET'} ${url.toString()}`;
+              errorMessage += ` | Request: ${options.method || 'GET'} ${fullUrl}`;
               
               reject(new Error(errorMessage));
               return;
@@ -128,7 +133,7 @@ export class UniFiLiteClient {
       });
 
       req.on('error', (error) => {
-        reject(new Error(`UniFi API request failed: ${error.message} | Request: ${options.method || 'GET'} ${url.toString()}`));
+        reject(new Error(`UniFi API request failed: ${error.message} | Request: ${options.method || 'GET'} ${fullUrl}`));
       });
 
       if (options.body) {
