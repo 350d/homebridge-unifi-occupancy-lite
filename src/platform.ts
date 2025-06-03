@@ -336,7 +336,30 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       this.log.info('Testing UniFi API connection...');
       
       // Test connection first
-      const isConnected = await this.unifi.testConnection();
+      let isConnected = await this.unifi.testConnection();
+      
+      if (!isConnected) {
+        this.log.warn('Primary API endpoint failed, trying alternative configurations...');
+        
+        // Try alternative configurations for different UniFi device types
+        const alternatives = this.getAlternativeConfigs();
+        
+        for (const altConfig of alternatives) {
+          this.log.info(`Trying alternative configuration: ${altConfig.description}`);
+          
+          const altClient = new UniFiLiteClient({
+            ...this.config.unifi,
+            ...altConfig.config
+          });
+          
+          if (await altClient.testConnection()) {
+            this.log.info(`Successfully connected using: ${altConfig.description}`);
+            this.unifi = altClient;
+            isConnected = true;
+            break;
+          }
+        }
+      }
       
       if (!isConnected) {
         this.log.warn('Failed to connect to UniFi API - will retry periodically');
@@ -361,5 +384,37 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       // Still start the refresh cycle, it will keep trying
       this.refreshPeriodically();
     }
+  }
+
+  private getAlternativeConfigs() {
+    const baseController = this.config.unifi.controller.replace(/\/$/, '');
+    
+    return [
+      {
+        description: 'Legacy controller without proxy prefix',
+        config: { controller: baseController }
+      },
+      {
+        description: 'UniFi OS with HTTPS and proxy prefix',
+        config: { 
+          controller: baseController.replace(/^http:\/\//, 'https://'),
+          secure: true 
+        }
+      },
+      {
+        description: 'UniFi OS with HTTP and proxy prefix', 
+        config: { 
+          controller: baseController.replace(/^https:\/\//, 'http://'),
+          secure: false 
+        }
+      },
+      {
+        description: 'Direct API without proxy (port 8443)',
+        config: { 
+          controller: baseController.replace(/:(\d+)/, ':8443'),
+          secure: true 
+        }
+      }
+    ];
   }
 }

@@ -30,8 +30,19 @@ export class UniFiLiteClient {
       // Site Manager API base URL
       this.baseUrl = 'https://api.ui.com';
     } else {
-      // Local controller API - Remove trailing slash and add the proxy prefix for UniFi OS devices
-      this.baseUrl = `${config.controller.replace(/\/$/, '')}/proxy/network`;
+      // Local controller API
+      let controllerUrl = config.controller.replace(/\/$/, '');
+      
+      // Check if it's a UniFi OS device (modern controllers)
+      if (controllerUrl.includes('unifi.ui.com') || 
+          controllerUrl.match(/^https?:\/\/\d+\.\d+\.\d+\.\d+/) ||
+          controllerUrl.includes('.local')) {
+        // UniFi OS devices need the proxy/network prefix
+        this.baseUrl = `${controllerUrl}/proxy/network`;
+      } else {
+        // Legacy controllers or Cloud Key devices
+        this.baseUrl = controllerUrl;
+      }
     }
   }
 
@@ -310,11 +321,41 @@ export class UniFiLiteClient {
     try {
       if (this.config.useSiteManagerApi) {
         await this.getDevices();
+        return true;
       } else {
-        await this.getSites();
+        // Try multiple endpoints to test connection
+        try {
+          // First try sites endpoint
+          await this.getSites();
+          return true;
+        } catch (sitesError) {
+          const errorMsg = sitesError instanceof Error ? sitesError.message : String(sitesError);
+          console.log(`Sites endpoint failed: ${errorMsg}`);
+          
+          try {
+            // Try devices endpoint as fallback
+            await this.getNetworkDevices();
+            return true;
+          } catch (devicesError) {
+            const devErrorMsg = devicesError instanceof Error ? devicesError.message : String(devicesError);
+            console.log(`Devices endpoint failed: ${devErrorMsg}`);
+            
+            try {
+              // Try clients endpoint as last resort
+              await this.getClients();
+              return true;
+            } catch (clientsError) {
+              const clientErrorMsg = clientsError instanceof Error ? clientsError.message : String(clientsError);
+              console.log(`Clients endpoint failed: ${clientErrorMsg}`);
+              console.log(`Base URL used: ${this.baseUrl}`);
+              return false;
+            }
+          }
+        }
       }
-      return true;
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.log(`Connection test failed: ${errorMsg}`);
       return false;
     }
   }
