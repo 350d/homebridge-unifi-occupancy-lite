@@ -242,6 +242,20 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       
       this.log.debug(`Found ${clients.length} clients and ${accessPoints.length} access points`);
 
+      // Log all found clients for debugging
+      console.log('\n=== ALL CLIENTS FROM UNIFI API ===');
+      clients.forEach((client, index) => {
+        console.log(`Client ${index + 1}:`, {
+          mac: client.mac,
+          ip: client.ip,
+          hostname: client.hostname,
+          name: client.name,
+          is_wired: client.is_wired,
+          oui: client.oui
+        });
+      });
+      console.log('=== END CLIENTS LIST ===\n');
+
       // Update device status for each resident
       for (const resident of this.residents) {
         console.log(`\n--- Checking devices for resident: ${resident.name} ---`);
@@ -275,6 +289,7 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
             this.log.debug(`Device ${device.name} found and updated - Online: ${device.isOnline}`);
           } else {
             console.log(`No matching client found for device: ${device.name}`);
+            console.log(`Looking for: MAC=${device.mac}, IP=${device.ip}, Hostname=${device.hostname}`);
           }
         }
         
