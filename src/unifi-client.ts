@@ -168,8 +168,43 @@ export class UniFiLiteClient {
     if (this.config.useSiteManagerApi) {
       return this.get('/v1/sites');
     } else {
-      return this.get('/api/stat/sites');
+      // Try multiple site endpoints
+      const endpointsToTry = [
+        '/api/stat/sites',
+        '/api/sites',
+        '/api/self/sites'
+      ];
+
+      for (const endpoint of endpointsToTry) {
+        try {
+          const result = await this.get(endpoint);
+          console.log(`Successfully fetched sites from: ${endpoint}`);
+          return result;
+        } catch (error) {
+          console.log(`Failed to fetch sites from ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
+          continue;
+        }
+      }
+
+      // If all endpoints fail, return default site
+      console.log('All site endpoints failed, using default site');
+      return [{ name: 'default' }];
     }
+  }
+
+  /**
+   * Get the first available site name or default
+   */
+  async getFirstSite(): Promise<string> {
+    try {
+      const sites = await this.getSites();
+      if (sites && sites.length > 0) {
+        return sites[0].name || 'default';
+      }
+    } catch (error) {
+      console.log(`Failed to get sites: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return 'default';
   }
 
   /**
@@ -185,18 +220,33 @@ export class UniFiLiteClient {
         );
       });
     } else {
-      // Try active clients first, fall back to all clients if endpoint doesn't exist
-      try {
-        return this.get(`/api/s/${site}/clients/active`);
-      } catch (error) {
-        // If active clients endpoint fails, try all clients
+      // Try multiple client endpoints with different site configurations
+      const endpointsToTry = [
+        `/api/s/${site}/clients/active`,
+        `/api/s/${site}/stat/alluser`,
+        `/api/s/${site}/stat/sta`,
+        `/api/stat/sta`,
+        `/api/clients/active`,
+        `/api/stat/alluser`,
+        `/api/s/default/clients/active`,
+        `/api/s/default/stat/alluser`,
+        `/api/s/default/stat/sta`
+      ];
+
+      for (const endpoint of endpointsToTry) {
         try {
-          return this.get(`/api/s/${site}/stat/alluser`);
-        } catch (fallbackError) {
-          // If all clients fails, try without site prefix (for older controllers)
-          return this.get(`/api/stat/sta`);
+          const result = await this.get(endpoint);
+          console.log(`Successfully fetched clients from: ${endpoint}`);
+          return result;
+        } catch (error) {
+          console.log(`Failed to fetch clients from ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
+          continue;
         }
       }
+
+      // If all endpoints fail, return empty array to prevent crash
+      console.log('All client endpoints failed, returning empty array');
+      return [];
     }
   }
 
@@ -226,13 +276,30 @@ export class UniFiLiteClient {
         );
       });
     } else {
-      // Try the standard device endpoint first
-      try {
-        return this.get(`/api/s/${site}/stat/device`);
-      } catch (error) {
-        // Fallback to older endpoint format
-        return this.get(`/api/s/${site}/device`);
+      // Try multiple device endpoints
+      const endpointsToTry = [
+        `/api/s/${site}/stat/device`,
+        `/api/s/${site}/device`,
+        `/api/stat/device`,
+        `/api/device`,
+        `/api/s/default/stat/device`,
+        `/api/s/default/device`
+      ];
+
+      for (const endpoint of endpointsToTry) {
+        try {
+          const result = await this.get(endpoint);
+          console.log(`Successfully fetched devices from: ${endpoint}`);
+          return result;
+        } catch (error) {
+          console.log(`Failed to fetch devices from ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
+          continue;
+        }
       }
+
+      // If all endpoints fail, return empty array
+      console.log('All device endpoints failed, returning empty array');
+      return [];
     }
   }
 

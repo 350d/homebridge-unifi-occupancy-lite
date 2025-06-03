@@ -234,9 +234,13 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
         return;
       }
 
+      // Get the correct site name first
+      const actualSite = await this.unifi.getFirstSite();
+      this.log.debug(`Using site: ${actualSite}`);
+
       // Get clients from UniFi
-      const clients = await this.unifi.getClients();
-      const accessPoints = await this.unifi.getNetworkDevices();
+      const clients = await this.unifi.getClients(actualSite);
+      const accessPoints = await this.unifi.getNetworkDevices(actualSite);
       
       this.log.debug(`Found ${clients.length} clients and ${accessPoints.length} access points`);
 
