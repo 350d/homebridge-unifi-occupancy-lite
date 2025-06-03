@@ -30,124 +30,196 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
     public readonly config: PlatformConfig,
     public readonly api: API,
   ) {
-    if (!this.parseConfig()) {
-      return;
-    }
+    this.log.info('Initializing UniFi Occupancy Lite platform...');
 
-    this.api.on('didFinishLaunching', () => {
-      this.connect();
-      this.setupAccessories();
-      this.refresh()
-        .then(() => this.refreshPeriodically())
-        .catch(error => {
-          this.log.error('Failed to initialize:', error);
-        });
-    });
+    try {
+      if (!this.parseConfig()) {
+        this.log.warn('Configuration incomplete - plugin will wait for proper configuration');
+        return;
+      }
+
+      this.api.on('didFinishLaunching', () => {
+        this.log.info('Homebridge finished launching, setting up UniFi Occupancy Lite...');
+        
+        try {
+          this.connect();
+          this.setupAccessories();
+          
+          // Only start refresh if we have residents configured
+          if (this.residents.length > 0) {
+            this.refresh()
+              .then(() => this.refreshPeriodically())
+              .catch(error => {
+                this.log.error('Failed to initialize device refresh:', error);
+              });
+          } else {
+            this.log.info('No residents configured - plugin running in standby mode');
+          }
+        } catch (error) {
+          this.log.error('Failed to setup platform:', error);
+        }
+      });
+    } catch (error) {
+      this.log.error('Failed to initialize platform:', error);
+    }
   }
 
   parseConfig(): boolean {
-    if (!this.config.unifi) {
-      this.log.error('ERROR: UniFi Controller is not configured.');
+    try {
+      // Check if minimal config exists
+      if (!this.config) {
+        this.log.warn('No configuration provided');
+        return false;
+      }
+
+      if (!this.config.unifi) {
+        this.log.warn('UniFi Controller is not configured - please configure in plugin settings');
+        return false;
+      }
+
+      if (!this.config.unifi.apiKey) {
+        this.log.warn('UniFi API Key is required - please add API key in plugin settings');
+        return false;
+      }
+
+      if (this.config.unifi.useSiteManagerApi && !this.config.unifi.hostId) {
+        this.log.error('Host ID is required when using Site Manager API');
+        return false;
+      }
+
+      // Set defaults safely
+      this.config.interval = this.config.interval || 180;
+      this.config.globalPresenceSensor = this.config.globalPresenceSensor !== false; // Default to true
+      this.config.residents = this.config.residents || [];
+      this.config.wifiPoints = this.config.wifiPoints || [];
+
+      // Initialize residents safely
+      try {
+        this.residents = this.config.residents.map((residentConfig: ResidentConfig) => {
+          if (!residentConfig.name) {
+            throw new Error('Resident name is required');
+          }
+          return new Resident(residentConfig);
+        });
+      } catch (error) {
+        this.log.error('Error initializing residents:', error);
+        this.residents = [];
+      }
+
+      // Initialize wifi points safely
+      try {
+        this.wifiPoints = this.config.wifiPoints.map((wifiPointConfig: WifiPointConfig) => {
+          if (!wifiPointConfig.name) {
+            throw new Error('WiFi point name is required');
+          }
+          return new WifiPoint(wifiPointConfig);
+        });
+      } catch (error) {
+        this.log.error('Error initializing WiFi points:', error);
+        this.wifiPoints = [];
+      }
+
+      const totalDevices = this.residents.reduce((sum, r) => sum + r.devices.length, 0);
+      this.log.info(`Configuration loaded: ${this.residents.length} residents, ${totalDevices} devices, ${this.wifiPoints.length} WiFi points`);
+
+      return true;
+    } catch (error) {
+      this.log.error('Error parsing configuration:', error);
       return false;
     }
-
-    if (!this.config.unifi.apiKey) {
-      this.log.error('ERROR: UniFi API Key is required.');
-      return false;
-    }
-
-    if (this.config.unifi.useSiteManagerApi && !this.config.unifi.hostId) {
-      this.log.error('ERROR: Host ID is required when using Site Manager API.');
-      return false;
-    }
-
-    // Set defaults
-    this.config.interval ||= 180;
-    this.config.globalPresenceSensor ??= true;
-    this.config.residents ||= [];
-    this.config.wifiPoints ||= [];
-
-    // Initialize residents
-    this.residents = this.config.residents.map((residentConfig: ResidentConfig) => 
-      new Resident(residentConfig)
-    );
-
-    // Initialize wifi points
-    this.wifiPoints = this.config.wifiPoints.map((wifiPointConfig: WifiPointConfig) => 
-      new WifiPoint(wifiPointConfig)
-    );
-
-    this.log.info(`Configured ${this.residents.length} residents with ${this.residents.reduce((sum, r) => sum + r.devices.length, 0)} total devices`);
-    this.log.info(`Configured ${this.wifiPoints.length} WiFi points`);
-
-    return true;
   }
 
   connect() {
     this.log.debug('Connecting to UniFi Controller...');
     
-    this.unifi = new UniFiLiteClient({
-      controller: this.config.unifi.controller,
-      apiKey: this.config.unifi.apiKey,
-      site: this.config.unifi.site || 'default',
-      secure: this.config.unifi.secure || false,
-      useSiteManagerApi: this.config.unifi.useSiteManagerApi || false,
-      hostId: this.config.unifi.hostId
-    });
+    try {
+      this.unifi = new UniFiLiteClient({
+        controller: this.config.unifi.controller,
+        apiKey: this.config.unifi.apiKey,
+        site: this.config.unifi.site || 'default',
+        secure: this.config.unifi.secure || false,
+        useSiteManagerApi: this.config.unifi.useSiteManagerApi || false,
+        hostId: this.config.unifi.hostId
+      });
 
-    this.log.info('UniFi API Client initialized');
+      this.log.info('UniFi API Client initialized successfully');
+    } catch (error) {
+      this.log.error('Failed to initialize UniFi client:', error);
+      throw error;
+    }
   }
 
   setupAccessories() {
-    // Setup global presence sensor
-    if (this.config.globalPresenceSensor) {
-      this.setupGlobalPresenceAccessory();
-    }
+    try {
+      // Setup global presence sensor
+      if (this.config.globalPresenceSensor) {
+        this.setupGlobalPresenceAccessory();
+      }
 
-    // Setup WiFi point accessories
-    this.wifiPoints.forEach(wifiPoint => {
-      this.setupWifiPointAccessory(wifiPoint);
-    });
+      // Setup WiFi point accessories
+      this.wifiPoints.forEach(wifiPoint => {
+        try {
+          this.setupWifiPointAccessory(wifiPoint);
+        } catch (error) {
+          this.log.error(`Failed to setup WiFi point accessory for ${wifiPoint.name}:`, error);
+        }
+      });
+
+      this.log.info('Accessories setup completed');
+    } catch (error) {
+      this.log.error('Failed to setup accessories:', error);
+    }
   }
 
   private setupGlobalPresenceAccessory() {
-    const uuid = this.api.hap.uuid.generate('global-presence');
-    let accessory = this.accessories.get(uuid);
+    try {
+      const uuid = this.api.hap.uuid.generate('global-presence');
+      let accessory = this.accessories.get(uuid);
 
-    if (!accessory) {
-      accessory = new this.api.platformAccessory('Global Presence', uuid);
-      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-      this.accessories.set(uuid, accessory);
-      this.log.info('Created new global presence accessory');
+      if (!accessory) {
+        accessory = new this.api.platformAccessory('Global Presence', uuid);
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.accessories.set(uuid, accessory);
+        this.log.info('Created new global presence accessory');
+      }
+
+      this.globalPresenceHandler = new GlobalPresenceAccessoryHandler(
+        this, accessory, this.residents
+      );
+    } catch (error) {
+      this.log.error('Failed to setup global presence accessory:', error);
     }
-
-    this.globalPresenceHandler = new GlobalPresenceAccessoryHandler(
-      this, accessory, this.residents
-    );
   }
 
   private setupWifiPointAccessory(wifiPoint: WifiPoint) {
-    const uuid = this.api.hap.uuid.generate(`wifi-point-${wifiPoint.name}`);
-    let accessory = this.accessories.get(uuid);
+    try {
+      const uuid = this.api.hap.uuid.generate(`wifi-point-${wifiPoint.name}`);
+      let accessory = this.accessories.get(uuid);
 
-    if (!accessory) {
-      accessory = new this.api.platformAccessory(`${wifiPoint.name} Presence`, uuid);
-      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-      this.accessories.set(uuid, accessory);
-      this.log.info(`Created new wifi point accessory: ${wifiPoint.name}`);
+      if (!accessory) {
+        accessory = new this.api.platformAccessory(`${wifiPoint.name} Presence`, uuid);
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.accessories.set(uuid, accessory);
+        this.log.info(`Created new wifi point accessory: ${wifiPoint.name}`);
+      }
+
+      const handler = new WifiPointAccessoryHandler(
+        this, accessory, wifiPoint, this.residents
+      );
+      this.wifiPointHandlers.set(wifiPoint.name, handler);
+    } catch (error) {
+      this.log.error(`Failed to setup WiFi point accessory for ${wifiPoint.name}:`, error);
     }
-
-    const handler = new WifiPointAccessoryHandler(
-      this, accessory, wifiPoint, this.residents
-    );
-    this.wifiPointHandlers.set(wifiPoint.name, handler);
   }
 
   refreshPeriodically() {
-    setInterval(() => this.refresh(), this.config.interval * 1000);
+    const interval = Math.max(30, Math.min(3600, this.config.interval)) * 1000; // Clamp between 30s and 1hour
+    this.log.debug(`Setting up periodic refresh every ${interval / 1000} seconds`);
+    setInterval(() => this.refresh(), interval);
   }
 
   configureAccessory(accessory: PlatformAccessory) {
+    this.log.debug(`Configuring cached accessory: ${accessory.displayName}`);
     this.accessories.set(accessory.UUID, accessory);
   }
 
@@ -155,10 +227,17 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
     try {
       this.log.debug('Refreshing device presence...');
       
+      if (!this.unifi) {
+        this.log.warn('UniFi client not initialized, skipping refresh');
+        return;
+      }
+
       // Get clients from UniFi
       const clients = await this.unifi.getClients();
       const accessPoints = await this.unifi.getNetworkDevices();
       
+      this.log.debug(`Found ${clients.length} clients and ${accessPoints.length} access points`);
+
       // Update device status for each resident
       for (const resident of this.residents) {
         for (const device of resident.devices) {
@@ -177,6 +256,7 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
             }
 
             device.updateFromClient(matchingClient, trafficData);
+            this.log.debug(`Device ${device.name} found and updated`);
           }
         }
         
@@ -206,7 +286,7 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       if (homeResidents.length > 0) {
         this.log.info(`Residents at home: ${homeResidents.join(', ')}`);
       } else {
-        this.log.info('No residents detected at home');
+        this.log.debug('No residents detected at home');
       }
 
     } catch (error) {
@@ -216,32 +296,36 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
 
   // Remove unused accessories
   removeUnusedAccessories() {
-    const expectedAccessories = new Set<string>();
-    
-    // Add global presence if enabled
-    if (this.config.globalPresenceSensor) {
-      expectedAccessories.add(this.api.hap.uuid.generate('global-presence'));
-    }
-
-    // Add wifi point accessories
-    this.wifiPoints.forEach(wifiPoint => {
-      expectedAccessories.add(this.api.hap.uuid.generate(`wifi-point-${wifiPoint.name}`));
-    });
-
-    // Remove accessories that are no longer needed
-    const accessoriesToRemove: PlatformAccessory[] = [];
-    this.accessories.forEach((accessory, uuid) => {
-      if (!expectedAccessories.has(uuid)) {
-        accessoriesToRemove.push(accessory);
+    try {
+      const expectedAccessories = new Set<string>();
+      
+      // Add global presence if enabled
+      if (this.config.globalPresenceSensor) {
+        expectedAccessories.add(this.api.hap.uuid.generate('global-presence'));
       }
-    });
 
-    if (accessoriesToRemove.length > 0) {
-      this.log.info(`Removing ${accessoriesToRemove.length} unused accessories`);
-      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, accessoriesToRemove);
-      accessoriesToRemove.forEach(accessory => {
-        this.accessories.delete(accessory.UUID);
+      // Add wifi point accessories
+      this.wifiPoints.forEach(wifiPoint => {
+        expectedAccessories.add(this.api.hap.uuid.generate(`wifi-point-${wifiPoint.name}`));
       });
+
+      // Remove accessories that are no longer needed
+      const accessoriesToRemove: PlatformAccessory[] = [];
+      this.accessories.forEach((accessory, uuid) => {
+        if (!expectedAccessories.has(uuid)) {
+          accessoriesToRemove.push(accessory);
+        }
+      });
+
+      if (accessoriesToRemove.length > 0) {
+        this.log.info(`Removing ${accessoriesToRemove.length} unused accessories`);
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, accessoriesToRemove);
+        accessoriesToRemove.forEach(accessory => {
+          this.accessories.delete(accessory.UUID);
+        });
+      }
+    } catch (error) {
+      this.log.error('Error removing unused accessories:', error);
     }
   }
 }
