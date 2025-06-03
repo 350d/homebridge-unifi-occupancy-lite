@@ -6,7 +6,7 @@
     "type": "object",
     "properties": {
       "name": {
-        "title": "Name",
+        "title": "Plugin Name",
         "type": "string",
         "default": "UniFi Occupancy Lite",
         "required": true
@@ -17,27 +17,26 @@
           "controller": {
             "title": "Controller URL",
             "type": "string",
-            "placeholder": "https://192.168.1.1",
-            "description": "URL of your UniFi controller",
-            "required": true
+            "required": true,
+            "description": "UniFi Controller URL (e.g., https://192.168.1.1 or https://unifi.local)"
           },
           "apiKey": {
             "title": "API Key",
-            "type": "string", 
-            "description": "Local API key from UniFi OS Settings > Admins & Users > API Keys",
-            "required": true
+            "type": "string",
+            "required": true,
+            "description": "Local user API key from UniFi Controller"
           },
           "site": {
-            "title": "Site Name",
+            "title": "Site ID",
             "type": "string",
             "default": "default",
-            "description": "Site name (usually 'default')"
+            "description": "UniFi site ID (usually 'default')"
           },
           "secure": {
             "title": "Verify SSL Certificate",
             "type": "boolean",
             "default": false,
-            "description": "Enable SSL certificate verification (disable for self-signed certificates)"
+            "description": "Enable SSL certificate verification"
           },
           "useSiteManagerApi": {
             "title": "Use UniFi Site Manager API",
@@ -96,18 +95,9 @@
                   "mac": {
                     "title": "MAC Address",
                     "type": "string",
+                    "required": true,
                     "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
                     "description": "Device MAC address (format: AA:BB:CC:DD:EE:FF)"
-                  },
-                  "hostname": {
-                    "title": "Hostname",
-                    "type": "string",
-                    "description": "Device hostname (alternative to MAC)"
-                  },
-                  "ip": {
-                    "title": "IP Address", 
-                    "type": "string",
-                    "description": "Device IP address (alternative to MAC)"
                   },
                   "minTrafficAmount": {
                     "title": "Minimum Traffic (KB)",
@@ -116,7 +106,7 @@
                     "description": "Minimum traffic in last 15 minutes to consider device active (0 = any activity)"
                   }
                 },
-                "required": ["name"]
+                "required": ["name", "mac"]
               }
             }
           },
@@ -139,16 +129,12 @@
             "mac": {
               "title": "Access Point MAC Address",
               "type": "string",
+              "required": true,
               "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
               "description": "MAC address of the access point"
-            },
-            "hostname": {
-              "title": "Access Point Hostname",
-              "type": "string",
-              "description": "Hostname of the access point (alternative to MAC)"
             }
           },
-          "required": ["name"]
+          "required": ["name", "mac"]
         }
       }
     },
@@ -197,15 +183,7 @@
               "type": "array", 
               "items": [
                 "residents[].devices[].name",
-                {
-                  "type": "flex",
-                  "flex-flow": "row wrap",
-                  "items": [
-                    "residents[].devices[].mac",
-                    "residents[].devices[].hostname",
-                    "residents[].devices[].ip"
-                  ]
-                },
+                "residents[].devices[].mac",
                 "residents[].devices[].minTrafficAmount"
               ]
             }
@@ -223,14 +201,7 @@
           "type": "array",
           "items": [
             "wifiPoints[].name",
-            {
-              "type": "flex", 
-              "flex-flow": "row wrap",
-              "items": [
-                "wifiPoints[].mac",
-                "wifiPoints[].hostname"
-              ]
-            }
+            "wifiPoints[].mac"
           ]
         }
       ]
