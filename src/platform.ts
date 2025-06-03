@@ -244,15 +244,27 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
 
       // Update device status for each resident
       for (const resident of this.residents) {
+        console.log(`\n--- Checking devices for resident: ${resident.name} ---`);
+        
         for (const device of resident.devices) {
           // Reset device status
           device.isOnline = false;
           device.currentAccessPoint = undefined;
 
+          console.log(`Checking device: ${device.name} (MAC: ${device.mac}, IP: ${device.ip}, Hostname: ${device.hostname})`);
+
           // Find matching client
           const matchingClient = clients.find(client => device.matchesClient(client));
           
           if (matchingClient) {
+            console.log(`Found matching client for ${device.name}:`, {
+              mac: matchingClient.mac,
+              ip: matchingClient.ip,
+              hostname: matchingClient.hostname,
+              name: matchingClient.name,
+              is_wired: matchingClient.is_wired
+            });
+
             // Get traffic data if needed
             let trafficData: { rx_bytes: number; tx_bytes: number } | null = null;
             if (device.minTrafficAmount && device.minTrafficAmount > 0) {
@@ -260,12 +272,21 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
             }
 
             device.updateFromClient(matchingClient, trafficData);
-            this.log.debug(`Device ${device.name} found and updated`);
+            this.log.debug(`Device ${device.name} found and updated - Online: ${device.isOnline}`);
+          } else {
+            console.log(`No matching client found for device: ${device.name}`);
           }
         }
         
         // Update resident presence based on device status
+        const wasHome = resident.isHome;
         resident.updatePresence();
+        
+        console.log(`Resident ${resident.name}: ${resident.devices.filter(d => d.isOnline).length}/${resident.devices.length} devices online -> ${resident.isHome ? 'HOME' : 'AWAY'}`);
+        
+        if (wasHome !== resident.isHome) {
+          this.log.info(`${resident.name} presence changed: ${wasHome ? 'HOME' : 'AWAY'} -> ${resident.isHome ? 'HOME' : 'AWAY'}`);
+        }
       }
 
       // Map access points for wifi point matching
