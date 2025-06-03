@@ -144,6 +144,8 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
         hostId: this.config.unifi.hostId
       });
 
+      // Log detected controller type
+      this.log.info(`Controller type detected: ${(this.unifi as any).controllerType}`);
       this.log.info('UniFi API Client initialized successfully');
     } catch (error) {
       this.log.error('Failed to initialize UniFi client:', error);
@@ -234,13 +236,9 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
         return;
       }
 
-      // Get the correct site name first
-      const actualSite = await this.unifi.getFirstSite();
-      this.log.debug(`Using site: ${actualSite}`);
-
-      // Get clients from UniFi
-      const clients = await this.unifi.getClients(actualSite);
-      const accessPoints = await this.unifi.getNetworkDevices(actualSite);
+      // Get clients from UniFi using configured site
+      const clients = await this.unifi.getClients();
+      const accessPoints = await this.unifi.getNetworkDevices();
       
       this.log.debug(`Found ${clients.length} clients and ${accessPoints.length} access points`);
 

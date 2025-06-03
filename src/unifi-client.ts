@@ -17,11 +17,17 @@ export interface UniFiConfig {
   secure: boolean;
   useSiteManagerApi?: boolean;
   hostId?: string;
+  endpoints?: {
+    sites?: string;
+    clients?: string;
+    devices?: string;
+  };
 }
 
 export class UniFiLiteClient {
   private config: UniFiConfig;
-  private baseUrl: string;
+  private baseUrl!: string;
+  private controllerType!: 'unifi-os' | 'cloud-key' | 'legacy';
 
   constructor(config: UniFiConfig) {
     this.config = config;
@@ -29,23 +35,31 @@ export class UniFiLiteClient {
     if (config.useSiteManagerApi) {
       // Site Manager API base URL
       this.baseUrl = 'https://api.ui.com';
+      this.controllerType = 'legacy'; // Not really used for Site Manager API
     } else {
-      // Local controller API
-      let controllerUrl = config.controller.replace(/\/$/, '');
-      
-      // Only add proxy/network if not already present and it's likely a UniFi OS device
-      if (!controllerUrl.includes('/proxy/network') && 
-          !controllerUrl.includes(':8443') &&
-          !controllerUrl.includes(':8080') &&
-          (controllerUrl.match(/^https?:\/\/\d+\.\d+\.\d+\.\d+$/) || 
-           controllerUrl.includes('.local') ||
-           controllerUrl.includes('unifi.ui.com'))) {
-        // Modern UniFi OS devices typically need the proxy prefix
-        this.baseUrl = `${controllerUrl}/proxy/network`;
-      } else {
-        // Use URL as-is for legacy controllers or when proxy is already specified
-        this.baseUrl = controllerUrl;
-      }
+      // Detect controller type and set appropriate base URL and endpoints
+      this.detectControllerType();
+    }
+  }
+
+  private detectControllerType() {
+    const controllerUrl = this.config.controller.replace(/\/$/, '');
+    
+    // Check if it's likely a UniFi OS device (UDM Pro/SE, UDM, UDR)
+    if (controllerUrl.match(/^https?:\/\/\d+\.\d+\.\d+\.\d+$/) || 
+        controllerUrl.includes('.local') ||
+        controllerUrl.includes('unifi.ui.com')) {
+      // Modern UniFi OS devices
+      this.controllerType = 'unifi-os';
+      this.baseUrl = `${controllerUrl}/proxy/network`;
+    } else if (controllerUrl.includes(':8443')) {
+      // Cloud Key or controller on port 8443
+      this.controllerType = 'cloud-key';
+      this.baseUrl = controllerUrl;
+    } else {
+      // Legacy controller or other
+      this.controllerType = 'legacy';
+      this.baseUrl = controllerUrl;
     }
   }
 
@@ -168,43 +182,8 @@ export class UniFiLiteClient {
     if (this.config.useSiteManagerApi) {
       return this.get('/v1/sites');
     } else {
-      // Try multiple site endpoints
-      const endpointsToTry = [
-        '/api/stat/sites',
-        '/api/sites',
-        '/api/self/sites'
-      ];
-
-      for (const endpoint of endpointsToTry) {
-        try {
-          const result = await this.get(endpoint);
-          console.log(`Successfully fetched sites from: ${endpoint}`);
-          return result;
-        } catch (error) {
-          console.log(`Failed to fetch sites from ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
-          continue;
-        }
-      }
-
-      // If all endpoints fail, return default site
-      console.log('All site endpoints failed, using default site');
-      return [{ name: 'default' }];
+      return this.get('/api/stat/sites');
     }
-  }
-
-  /**
-   * Get the first available site name or default
-   */
-  async getFirstSite(): Promise<string> {
-    try {
-      const sites = await this.getSites();
-      if (sites && sites.length > 0) {
-        return sites[0].name || 'default';
-      }
-    } catch (error) {
-      console.log(`Failed to get sites: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    return 'default';
   }
 
   /**
@@ -214,39 +193,19 @@ export class UniFiLiteClient {
     if (this.config.useSiteManagerApi) {
       // For Site Manager API, we need to get devices and filter clients
       return this.getDevices().then(devices => {
-        // Extract client information from devices
         return devices.flatMap(host => 
           host.devices?.filter(device => device.productLine === 'network') || []
         );
       });
     } else {
-      // Try multiple client endpoints with different site configurations
-      const endpointsToTry = [
-        `/api/s/${site}/clients/active`,
-        `/api/s/${site}/stat/alluser`,
-        `/api/s/${site}/stat/sta`,
-        `/api/stat/sta`,
-        `/api/clients/active`,
-        `/api/stat/alluser`,
-        `/api/s/default/clients/active`,
-        `/api/s/default/stat/alluser`,
-        `/api/s/default/stat/sta`
-      ];
-
-      for (const endpoint of endpointsToTry) {
-        try {
-          const result = await this.get(endpoint);
-          console.log(`Successfully fetched clients from: ${endpoint}`);
-          return result;
-        } catch (error) {
-          console.log(`Failed to fetch clients from ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
-          continue;
-        }
+      // Use correct endpoint based on controller type
+      if (this.controllerType === 'unifi-os') {
+        // UniFi OS uses stat/alluser for clients
+        return this.get(`/api/s/${site}/stat/alluser`);
+      } else {
+        // Cloud Key and Legacy use clients/active
+        return this.get(`/api/s/${site}/clients/active`);
       }
-
-      // If all endpoints fail, return empty array to prevent crash
-      console.log('All client endpoints failed, returning empty array');
-      return [];
     }
   }
 
@@ -276,30 +235,8 @@ export class UniFiLiteClient {
         );
       });
     } else {
-      // Try multiple device endpoints
-      const endpointsToTry = [
-        `/api/s/${site}/stat/device`,
-        `/api/s/${site}/device`,
-        `/api/stat/device`,
-        `/api/device`,
-        `/api/s/default/stat/device`,
-        `/api/s/default/device`
-      ];
-
-      for (const endpoint of endpointsToTry) {
-        try {
-          const result = await this.get(endpoint);
-          console.log(`Successfully fetched devices from: ${endpoint}`);
-          return result;
-        } catch (error) {
-          console.log(`Failed to fetch devices from ${endpoint}: ${error instanceof Error ? error.message : String(error)}`);
-          continue;
-        }
-      }
-
-      // If all endpoints fail, return empty array
-      console.log('All device endpoints failed, returning empty array');
-      return [];
+      // All controller types use the same device endpoint
+      return this.get(`/api/s/${site}/stat/device`);
     }
   }
 

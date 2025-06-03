@@ -1,7 +1,7 @@
 {
   "displayName": "Homebridge UniFi Occupancy Lite",
   "name": "homebridge-unifi-occupancy-lite",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Lightweight UniFi occupancy sensor plugin for Homebridge using API tokens only. Works with UDM Pro/SE, UDM, UDR and other UniFi OS devices.",
   "license": "MIT",
   "author": "350d",

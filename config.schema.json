@@ -5,163 +5,178 @@
   "schema": {
     "type": "object",
     "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "UniFi Occupancy Lite",
+        "required": true
+      },
       "unifi": {
-        "title": "UniFi Settings",
         "type": "object",
         "properties": {
           "controller": {
             "title": "Controller URL",
             "type": "string",
-            "required": true,
-            "default": "https://192.168.1.1",
-            "description": "URL of your UniFi controller (UDM Pro/SE, UDM, UDR, etc.)"
+            "placeholder": "https://192.168.1.1",
+            "description": "URL of your UniFi controller",
+            "required": true
           },
           "apiKey": {
             "title": "API Key",
-            "type": "string",
-            "required": true,
-            "description": "API Key from UniFi Network settings or Site Manager API Key"
+            "type": "string", 
+            "description": "Local API key from UniFi OS Settings > Admins & Users > API Keys",
+            "required": true
           },
-          "useSiteManagerApi": {
-            "title": "Use Site Manager API",
+          "site": {
+            "title": "Site Name",
+            "type": "string",
+            "default": "default",
+            "description": "Site name (usually 'default')"
+          },
+          "secure": {
+            "title": "Verify SSL Certificate",
             "type": "boolean",
             "default": false,
-            "description": "Use UniFi Site Manager API instead of local controller API"
+            "description": "Enable SSL certificate verification (disable for self-signed certificates)"
+          },
+          "useSiteManagerApi": {
+            "title": "Use UniFi Site Manager API",
+            "type": "boolean",
+            "default": false,
+            "description": "Use cloud-based Site Manager API instead of local controller"
           },
           "hostId": {
             "title": "Host ID",
             "type": "string",
-            "description": "Host ID for Site Manager API (required when using Site Manager API)"
-          },
-          "site": {
-            "title": "Site",
-            "type": "string",
-            "default": "default",
-            "description": "UniFi site name (usually 'default')"
-          },
-          "secure": {
-            "title": "Validate SSL Certificate",
-            "type": "boolean",
-            "default": false,
-            "description": "Enable SSL certificate validation (disable for self-signed certificates)"
+            "condition": {
+              "functionBody": "return model.unifi && model.unifi.useSiteManagerApi === true;"
+            },
+            "description": "Required when using Site Manager API"
           }
-        }
+        },
+        "required": ["controller", "apiKey"]
       },
       "interval": {
         "title": "Refresh Interval (seconds)",
-        "description": "How often to check for device presence changes",
         "type": "integer",
         "default": 180,
         "minimum": 30,
-        "maximum": 3600
+        "maximum": 3600,
+        "description": "How often to check for device presence"
       },
       "globalPresenceSensor": {
-        "title": "Enable Global Presence Sensor",
-        "description": "Create a single sensor that shows if ANY resident is home",
+        "title": "Global Presence Sensor",
         "type": "boolean",
-        "default": true
+        "default": true,
+        "description": "Create a sensor that shows if anyone is home"
       },
       "residents": {
         "title": "Residents",
-        "description": "List of residents and their devices to track",
         "type": "array",
         "items": {
-          "title": "Resident",
           "type": "object",
           "properties": {
             "name": {
-              "title": "Resident Name",
+              "title": "Name",
               "type": "string",
               "required": true,
-              "description": "Display name for this resident (e.g., 'John', 'Mary')"
+              "description": "Resident name (will appear in HomeKit)"
             },
             "devices": {
               "title": "Devices",
               "type": "array",
               "items": {
-                "title": "Device",
                 "type": "object",
                 "properties": {
                   "name": {
                     "title": "Device Name",
                     "type": "string",
-                    "required": true,
-                    "description": "Display name for this device (e.g., 'John's iPhone')"
-                  },
-                  "hostname": {
-                    "title": "Hostname",
-                    "type": "string",
-                    "description": "Device hostname (optional)"
-                  },
-                  "ip": {
-                    "title": "IP Address",
-                    "type": "string",
-                    "description": "Device IP address (optional)"
+                    "required": true
                   },
                   "mac": {
                     "title": "MAC Address",
                     "type": "string",
-                    "description": "Device MAC address (optional)"
+                    "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
+                    "description": "Device MAC address (format: AA:BB:CC:DD:EE:FF)"
+                  },
+                  "hostname": {
+                    "title": "Hostname",
+                    "type": "string",
+                    "description": "Device hostname (alternative to MAC)"
+                  },
+                  "ip": {
+                    "title": "IP Address", 
+                    "type": "string",
+                    "description": "Device IP address (alternative to MAC)"
                   },
                   "minTrafficAmount": {
-                    "title": "Minimum Traffic (KB/15min)",
+                    "title": "Minimum Traffic (KB)",
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Minimum traffic amount in KB over 15 minutes to consider device active"
+                    "description": "Minimum traffic in last 15 minutes to consider device active (0 = any activity)"
                   }
-                }
+                },
+                "required": ["name"]
               }
             }
-          }
+          },
+          "required": ["name", "devices"]
         }
       },
       "wifiPoints": {
-        "title": "WiFi Access Points",
-        "description": "List of WiFi access points to create room-specific presence sensors",
+        "title": "WiFi Points",
         "type": "array",
+        "description": "Create presence sensors for specific WiFi access points/rooms",
         "items": {
-          "title": "WiFi Point",
-          "type": "object",
+          "type": "object", 
           "properties": {
             "name": {
-              "title": "Room/Location Name",
+              "title": "Name",
               "type": "string",
               "required": true,
-              "description": "Display name for this location (e.g., 'Living Room', 'Bedroom')"
-            },
-            "ip": {
-              "title": "IP Address",
-              "type": "string",
-              "description": "Access point IP address (optional)"
+              "description": "WiFi point name (will appear in HomeKit)"
             },
             "mac": {
-              "title": "MAC Address",
+              "title": "Access Point MAC Address",
               "type": "string",
-              "description": "Access point MAC address (optional)"
+              "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
+              "description": "MAC address of the access point"
+            },
+            "hostname": {
+              "title": "Access Point Hostname",
+              "type": "string",
+              "description": "Hostname of the access point (alternative to MAC)"
             }
-          }
+          },
+          "required": ["name"]
         }
       }
-    }
+    },
+    "required": ["name", "unifi"]
   },
   "layout": [
     {
       "type": "fieldset",
       "title": "UniFi Controller Settings",
-      "expandable": false,
       "items": [
         "unifi.controller",
-        "unifi.apiKey",
-        "unifi.useSiteManagerApi",
-        "unifi.hostId",
+        "unifi.apiKey", 
         "unifi.site",
         "unifi.secure"
       ]
     },
     {
       "type": "fieldset", 
-      "title": "General Settings",
-      "expandable": true,
+      "title": "Site Manager API (Optional)",
+      "description": "For cloud-hosted controllers only",
+      "items": [
+        "unifi.useSiteManagerApi",
+        "unifi.hostId"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "General Settings", 
       "items": [
         "interval",
         "globalPresenceSensor"
@@ -169,8 +184,8 @@
     },
     {
       "type": "fieldset",
-      "title": "Residents & Devices",
-      "expandable": false,
+      "title": "Residents",
+      "description": "People whose devices to track for presence detection",
       "items": [
         {
           "key": "residents",
@@ -179,12 +194,18 @@
             "residents[].name",
             {
               "key": "residents[].devices",
-              "type": "array",
+              "type": "array", 
               "items": [
                 "residents[].devices[].name",
-                "residents[].devices[].hostname",
-                "residents[].devices[].ip",
-                "residents[].devices[].mac",
+                {
+                  "type": "flex",
+                  "flex-flow": "row wrap",
+                  "items": [
+                    "residents[].devices[].mac",
+                    "residents[].devices[].hostname",
+                    "residents[].devices[].ip"
+                  ]
+                },
                 "residents[].devices[].minTrafficAmount"
               ]
             }
@@ -194,20 +215,20 @@
     },
     {
       "type": "fieldset",
-      "title": "WiFi Access Points",
-      "expandable": true,
+      "title": "WiFi Points (Optional)",
+      "description": "Create room-specific presence sensors",
       "items": [
         {
           "key": "wifiPoints",
           "type": "array",
           "items": [
+            "wifiPoints[].name",
             {
-              "type": "flex",
+              "type": "flex", 
               "flex-flow": "row wrap",
               "items": [
-                "wifiPoints[].name",
-                "wifiPoints[].ip",
-                "wifiPoints[].mac"
+                "wifiPoints[].mac",
+                "wifiPoints[].hostname"
               ]
             }
           ]
