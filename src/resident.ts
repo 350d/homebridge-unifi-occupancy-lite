@@ -42,27 +42,23 @@ export class Device {
   matchesClient(client: any): boolean {
     // Check MAC address first (most reliable)
     if (this.mac && client.mac && this.mac.toLowerCase() === client.mac.toLowerCase()) {
-      console.log(`Device ${this.name} matched by MAC: ${this.mac} = ${client.mac}`);
       return true;
     }
 
     // Check IP address
     if (this.ip && client.ip && this.ip === client.ip) {
-      console.log(`Device ${this.name} matched by IP: ${this.ip} = ${client.ip}`);
       return true;
     }
 
     // Check hostname
     if (this.hostname && client.hostname && 
         this.hostname.toLowerCase() === client.hostname.toLowerCase()) {
-      console.log(`Device ${this.name} matched by hostname: ${this.hostname} = ${client.hostname}`);
       return true;
     }
 
     // Check if hostname matches device name
     if (this.hostname && client.name && 
         this.hostname.toLowerCase() === client.name.toLowerCase()) {
-      console.log(`Device ${this.name} matched by name: ${this.hostname} = ${client.name}`);
       return true;
     }
 
@@ -78,14 +74,9 @@ export class Device {
     this.lastSeen = new Date();
     this.currentAccessPoint = client.ap_mac || client.sw_mac;
 
-    // Log connection details
-    const connectionType = client.is_wired ? 'Wired' : 'Wireless';
-    console.log(`Device ${this.name} is online (${connectionType}) - MAC: ${client.mac}, IP: ${client.ip}, AP: ${this.currentAccessPoint}`);
-
     // Update traffic data if available
     if (trafficData) {
       this.trafficBytes = trafficData.rx_bytes + trafficData.tx_bytes;
-      console.log(`Device ${this.name} traffic: ${(this.trafficBytes / 1024).toFixed(2)} KB`);
     }
 
     // If minTrafficAmount is set, check if device has enough traffic
@@ -93,7 +84,6 @@ export class Device {
       const trafficKB = this.trafficBytes / 1024;
       const hasEnoughTraffic = trafficKB >= this.minTrafficAmount;
       this.isOnline = this.isOnline && hasEnoughTraffic;
-      console.log(`Device ${this.name} traffic check: ${trafficKB.toFixed(2)} KB >= ${this.minTrafficAmount} KB = ${hasEnoughTraffic}`);
     }
   }
 }

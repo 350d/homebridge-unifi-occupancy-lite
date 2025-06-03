@@ -242,43 +242,19 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       
       this.log.debug(`Found ${clients.length} clients and ${accessPoints.length} access points`);
 
-      // Log all found clients for debugging
-      console.log('\n=== ALL CLIENTS FROM UNIFI API ===');
-      clients.forEach((client, index) => {
-        console.log(`Client ${index + 1}:`, {
-          mac: client.mac,
-          ip: client.ip,
-          hostname: client.hostname,
-          name: client.name,
-          is_wired: client.is_wired,
-          oui: client.oui
-        });
-      });
-      console.log('=== END CLIENTS LIST ===\n');
-
       // Update device status for each resident
       for (const resident of this.residents) {
-        console.log(`\n--- Checking devices for resident: ${resident.name} ---`);
+        this.log.debug(`Checking devices for resident: ${resident.name}`);
         
         for (const device of resident.devices) {
           // Reset device status
           device.isOnline = false;
           device.currentAccessPoint = undefined;
 
-          console.log(`Checking device: ${device.name} (MAC: ${device.mac}, IP: ${device.ip}, Hostname: ${device.hostname})`);
-
           // Find matching client
           const matchingClient = clients.find(client => device.matchesClient(client));
           
           if (matchingClient) {
-            console.log(`Found matching client for ${device.name}:`, {
-              mac: matchingClient.mac,
-              ip: matchingClient.ip,
-              hostname: matchingClient.hostname,
-              name: matchingClient.name,
-              is_wired: matchingClient.is_wired
-            });
-
             // Get traffic data if needed
             let trafficData: { rx_bytes: number; tx_bytes: number } | null = null;
             if (device.minTrafficAmount && device.minTrafficAmount > 0) {
@@ -288,8 +264,7 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
             device.updateFromClient(matchingClient, trafficData);
             this.log.debug(`Device ${device.name} found and updated - Online: ${device.isOnline}`);
           } else {
-            console.log(`No matching client found for device: ${device.name}`);
-            console.log(`Looking for: MAC=${device.mac}, IP=${device.ip}, Hostname=${device.hostname}`);
+            this.log.debug(`No matching client found for device: ${device.name} (MAC: ${device.mac})`);
           }
         }
         
@@ -297,19 +272,28 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
         const wasHome = resident.isHome;
         resident.updatePresence();
         
-        console.log(`Resident ${resident.name}: ${resident.devices.filter(d => d.isOnline).length}/${resident.devices.length} devices online -> ${resident.isHome ? 'HOME' : 'AWAY'}`);
+        const onlineDevices = resident.devices.filter(d => d.isOnline).length;
+        this.log.debug(`Resident ${resident.name}: ${onlineDevices}/${resident.devices.length} devices online -> ${resident.isHome ? 'HOME' : 'AWAY'}`);
         
         if (wasHome !== resident.isHome) {
           this.log.info(`${resident.name} presence changed: ${wasHome ? 'HOME' : 'AWAY'} -> ${resident.isHome ? 'HOME' : 'AWAY'}`);
         }
       }
 
-      // Map access points for wifi point matching
+      // Update WiFi points with current access point information
       for (const wifiPoint of this.wifiPoints) {
         const matchingAP = accessPoints.find(ap => wifiPoint.matchesAccessPoint(ap));
         if (matchingAP) {
-          wifiPoint.mac = matchingAP.mac;
+          // Ensure wifiPoint has the correct MAC from the access point
+          if (!wifiPoint.mac) {
+            wifiPoint.mac = matchingAP.mac;
+          }
         }
+        
+        // Update presence based on residents at this access point
+        wifiPoint.updatePresence(this.residents);
+        
+        this.log.debug(`WiFi Point ${wifiPoint.name} (${wifiPoint.mac}): ${wifiPoint.hasResidents ? 'occupied' : 'empty'}`);
       }
 
       // Update accessory handlers
