@@ -1,58 +1,29 @@
+/*
+ * Based on homebridge-unifi-occupancy by DouweM
+ * Original: https://github.com/DouweM/homebridge-unifi-occupancy
+ * Licensed under Apache-2.0
+ * 
+ * Modified for homebridge-unifi-occupancy-lite - simplified, resident-based presence detection
+ */
+
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
-import UnifiEvents from 'unifi-events';
-import url from 'url';
-import Koa from 'koa';
-import Router from 'koa-router';
-import auth from 'koa-basic-auth';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import { AccessoryHandler } from './accessory_handler';
-import { ClientAccessoryHandler } from './client_accessory_handler';
-import { ClientTypeAccessoryHandler } from './client_type_accessory_handler';
-import { Client } from './client';
-import { ClientType } from './client_type';
-import { AccessorySubject } from './accessory_subject';
-import { ClientRule } from './client_rule';
-import { ClientRuleAccessoryHandler } from './client_rule_accessory_handler';
-
-function ensure(map, uuid, updater, builder) {
-  let item = map.get(uuid) || null;
-  if (item) {
-    updater(item);
-  } else {
-    item = builder();
-    if (item) {
-      map.set(uuid, item);
-    }
-  }
-  return item;
-}
+import { UniFiLiteClient } from './unifi-client';
+import { Resident, WifiPoint, ResidentConfig, WifiPointConfig, Device } from './resident';
+import { GlobalPresenceAccessoryHandler } from './global_presence_accessory_handler';
+import { WifiPointAccessoryHandler } from './wifi_point_accessory_handler';
 
 export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;
   public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
 
-  public clientTypes: ClientType[] = [];
-  public clientRules: ClientRule[] = [];
-  public roomAliases: Map<string, string> = new Map();
-  public avatars: Map<string, string> = new Map();
-
-  private unifi: UnifiEvents;
-
-  public accessories: Map<string, PlatformAccessory> = new Map();
-  public readonly accessoryHandlers: Map<string, AccessoryHandler> = new Map();
-
-  public deviceFingerprints: object = {};
-  public readonly rooms: Map<string, string> = new Map();
-
-  public readonly clients: Map<string, Client> = new Map();
-  public readonly clientCurrentRoom: Map<string, string> = new Map();
-
-  ACCESSORY_HANDLERS = [
-    ClientTypeAccessoryHandler,
-    ClientRuleAccessoryHandler,
-    ClientAccessoryHandler,
-  ];
+  private unifi!: UniFiLiteClient;
+  private residents: Resident[] = [];
+  private wifiPoints: WifiPoint[] = [];
+  private accessories: Map<string, PlatformAccessory> = new Map();
+  private globalPresenceHandler?: GlobalPresenceAccessoryHandler;
+  private wifiPointHandlers: Map<string, WifiPointAccessoryHandler> = new Map();
 
   constructor(
     public readonly log: Logger,
@@ -65,13 +36,12 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
 
     this.api.on('didFinishLaunching', () => {
       this.connect();
-
-      this.loadDeviceFingerprints()
-        .then(() => this.loadRooms())
-        .then(() => this.refresh())
-        .then(() => this.listenForEvents())
+      this.setupAccessories();
+      this.refresh()
         .then(() => this.refreshPeriodically())
-        .then(() => this.startWebServer());
+        .catch(error => {
+          this.log.error('Failed to initialize:', error);
+        });
     });
   }
 
@@ -81,326 +51,197 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       return false;
     }
 
+    if (!this.config.unifi.apiKey) {
+      this.log.error('ERROR: UniFi API Key is required.');
+      return false;
+    }
+
+    if (this.config.unifi.useSiteManagerApi && !this.config.unifi.hostId) {
+      this.log.error('ERROR: Host ID is required when using Site Manager API.');
+      return false;
+    }
+
+    // Set defaults
     this.config.interval ||= 180;
+    this.config.globalPresenceSensor ??= true;
+    this.config.residents ||= [];
+    this.config.wifiPoints ||= [];
 
-    this.config.server ||= { enabled: false };
-    this.config.server.port ||= 8582;
+    // Initialize residents
+    this.residents = this.config.residents.map((residentConfig: ResidentConfig) => 
+      new Resident(residentConfig)
+    );
 
-    this.config.showAsOwner ||= 'smartphone';
-    this.config.deviceType ||= {};
-    this.config.clientRules ||= [];
-    this.config.accessPointAliases ||= [];
-    this.config.avatars ||= [];
+    // Initialize wifi points
+    this.wifiPoints = this.config.wifiPoints.map((wifiPointConfig: WifiPointConfig) => 
+      new WifiPoint(wifiPointConfig)
+    );
 
-    this.clientRules = this.config.clientRules.map(raw => new ClientRule(this, raw));
-    this.roomAliases = new Map(this.config.accessPointAliases.map(({accessPoint, alias}) => [accessPoint, alias]));
-    this.avatars = new Map(this.config.avatars.map(({owner, identifier}) => [owner, identifier]));
-
-    this.clientTypes = [
-      new ClientType(
-        this, 'wired', 'Wired client',
-        (client, fp) => client.wired,
-        {lazy: true},
-      ),
-      new ClientType(
-        this, 'smartphone', 'Smartphone',
-        (client, fp) => fp.familyIs('Smartphone', 'Apple iOS Device') || fp.nameContains('phone'),
-        {roomAccessory: true},
-      ),
-      new ClientType(
-        this, 'smart_watch', 'Smart Watch',
-        (client, fp) => fp.familyIs('Wearable devices', 'Smart Watch') || fp.nameContains('watch'),
-      ),
-      new ClientType(
-        this, 'laptop', 'Laptop',
-        (client, fp) =>
-          (fp.familyIs('Desktop/Laptop') && fp.nameContains('book')) || fp.nameContains('laptop', 'macbook'),
-      ),
-      new ClientType(
-        this, 'tablet', 'Tablet',
-        (client, fp) => fp.familyIs('Tablet') || fp.nameContains('tablet', 'pad', 'tab'),
-      ),
-      new ClientType(
-        this, 'ereader', 'E-reader',
-        (client, fp) => fp.familyIs('eBook Reader') || fp.nameContains('ereader'),
-      ),
-      new ClientType(
-        this, 'game_console', 'Game Console',
-        (client, fp) => fp.nameContains('Nintendo Switch', 'Steam Deck'),
-      ),
-      new ClientType(
-        this, 'handheld', 'Handheld',
-        (client, fp) => fp.familyIs('Handheld'),
-        {lazy: true},
-      ),
-      new ClientType(
-        this, 'other', 'Other wireless client',
-        (client, fp) => true,
-        {lazy: true},
-      ),
-    ];
+    this.log.info(`Configured ${this.residents.length} residents with ${this.residents.reduce((sum, r) => sum + r.devices.length, 0)} total devices`);
+    this.log.info(`Configured ${this.wifiPoints.length} WiFi points`);
 
     return true;
   }
 
   connect() {
-    const controller = url.parse(this.config.unifi.controller);
-
-    this.log.debug('Connecting with UniFi Controller...');
-    this.unifi = new UnifiEvents({
-      host: controller.hostname,
-      port: controller.port || 443,
-      username: this.config.unifi.username,
-      password: this.config.unifi.password,
+    this.log.debug('Connecting to UniFi Controller...');
+    
+    this.unifi = new UniFiLiteClient({
+      controller: this.config.unifi.controller,
+      apiKey: this.config.unifi.apiKey,
       site: this.config.unifi.site || 'default',
-      insecure: [undefined, false].includes(this.config.unifi.secure),
-      unifios: [undefined, true].includes(this.config.unifi.unifios),
-      listen: true,
+      secure: this.config.unifi.secure || false,
+      useSiteManagerApi: this.config.unifi.useSiteManagerApi || false,
+      hostId: this.config.unifi.hostId
     });
 
-    this.unifi.on('ctrl.disconnect', () => {
-      this.log.debug('UniFi Controller disconnected, reconnecting...');
-      this.unifi.connect();
-      this.refresh();
+    this.log.info('UniFi API Client initialized');
+  }
+
+  setupAccessories() {
+    // Setup global presence sensor
+    if (this.config.globalPresenceSensor) {
+      this.setupGlobalPresenceAccessory();
+    }
+
+    // Setup WiFi point accessories
+    this.wifiPoints.forEach(wifiPoint => {
+      this.setupWifiPointAccessory(wifiPoint);
     });
   }
 
-  listenForEvents() {
-    this.unifi.on('*.connected', (data) => {
-      this.log.debug('Client connected:', data.msg);
-      this.refresh();
-    });
+  private setupGlobalPresenceAccessory() {
+    const uuid = this.api.hap.uuid.generate('global-presence');
+    let accessory = this.accessories.get(uuid);
 
-    this.unifi.on('*.roam', (data) => {
-      this.log.debug('Client roamed:', data.msg);
-      if (this.clientCurrentRoom.has(data.user)) {
-        this.refresh();
-      }
-    });
+    if (!accessory) {
+      accessory = new this.api.platformAccessory('Global Presence', uuid);
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      this.accessories.set(uuid, accessory);
+      this.log.info('Created new global presence accessory');
+    }
 
-    this.unifi.on('*.disconnected', (data) => {
-      this.log.debug('Client disconnected:', data.msg);
-      if (this.clientCurrentRoom.has(data.user)) {
-        this.refresh();
-      }
-    });
+    this.globalPresenceHandler = new GlobalPresenceAccessoryHandler(
+      this, accessory, this.residents
+    );
+  }
+
+  private setupWifiPointAccessory(wifiPoint: WifiPoint) {
+    const uuid = this.api.hap.uuid.generate(`wifi-point-${wifiPoint.name}`);
+    let accessory = this.accessories.get(uuid);
+
+    if (!accessory) {
+      accessory = new this.api.platformAccessory(`${wifiPoint.name} Presence`, uuid);
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      this.accessories.set(uuid, accessory);
+      this.log.info(`Created new wifi point accessory: ${wifiPoint.name}`);
+    }
+
+    const handler = new WifiPointAccessoryHandler(
+      this, accessory, wifiPoint, this.residents
+    );
+    this.wifiPointHandlers.set(wifiPoint.name, handler);
   }
 
   refreshPeriodically() {
     setInterval(() => this.refresh(), this.config.interval * 1000);
   }
 
-  startWebServer() {
-    const config = this.config.server;
-
-    if (!config.enabled) {
-      return;
-    }
-
-    const app = new Koa();
-    const router = new Router();
-
-    if (config.username && config.password) {
-      app.use(auth({ name: config.username, pass: config.password }));
-    }
-
-    router.get('/clients', async (ctx) => {
-      ctx.body = [...this.clients.values()]
-        .filter(client => client.connected)
-        .map(client => client.asJSON);
-    });
-
-    app.use(router.routes()).use(router.allowedMethods());
-
-    app.listen(config.port, () => {
-      this.log.info('Web Server is running on port', config.port);
-    });
-  }
-
   configureAccessory(accessory: PlatformAccessory) {
     this.accessories.set(accessory.UUID, accessory);
   }
 
-  getNetworkDevices() {
-    this.log.debug('Loading network devices...');
+  async refresh() {
+    try {
+      this.log.debug('Refreshing device presence...');
+      
+      // Get clients from UniFi
+      const clients = await this.unifi.getClients();
+      const accessPoints = await this.unifi.getNetworkDevices();
+      
+      // Update device status for each resident
+      for (const resident of this.residents) {
+        for (const device of resident.devices) {
+          // Reset device status
+          device.isOnline = false;
+          device.currentAccessPoint = undefined;
 
-    return this.unifi.get(`/v2/api/site/${this.unifi.opts.site}/device`)
-      .then(({network_devices}) => {
-        return network_devices
-          .filter(({disabled}) => !disabled)
-          .map(({mac, name}) => ({mac, name}));
-      })
-      .catch((err) => {
-        this.log.error('ERROR: Failed to load network devices', err);
-        throw err;
-      });
-  }
+          // Find matching client
+          const matchingClient = clients.find(client => device.matchesClient(client));
+          
+          if (matchingClient) {
+            // Get traffic data if needed
+            let trafficData: { rx_bytes: number; tx_bytes: number } | null = null;
+            if (device.minTrafficAmount && device.minTrafficAmount > 0) {
+              trafficData = await this.unifi.getClientTrafficLast15Min(matchingClient.mac);
+            }
 
-  loadRooms() {
-    return this.getNetworkDevices()
-      .then((res) => {
-        for (const {mac, name} of res) {
-          const alias = this.roomAliases.get(mac) || this.roomAliases.get(name) || name;
-          this.rooms.set(mac, alias);
-
-          this.log.debug('Found room:', alias, `(${name})`);
+            device.updateFromClient(matchingClient, trafficData);
+          }
         }
-      });
-  }
+        
+        // Update resident presence based on device status
+        resident.updatePresence();
+      }
 
-  getDeviceFingerprints() {
-    this.log.debug('Loading device fingerprints...');
-
-    return this.unifi.get('/v2/api/fingerprint_devices/0')
-      .catch((err) => {
-        this.log.error('ERROR: Failed to load device fingerprints', err);
-        throw err;
-      });
-  }
-
-  loadDeviceFingerprints() {
-    return this.getDeviceFingerprints()
-      .then((data) => {
-        this.log.debug('Loaded device fingerprints');
-        this.deviceFingerprints = data;
-      });
-  }
-
-  getClients() {
-    this.log.debug('Loading clients...');
-
-    return this.unifi.get(`/v2/api/site/${this.unifi.opts.site}/clients/active`)
-      .then(data => {
-        return data;
-      })
-      .catch((err) => {
-        this.log.error('ERROR: Failed to load clients:', err);
-        throw err;
-      });
-  }
-
-  refresh() {
-    return this.loadClients()
-      .then(() => this.refreshAccessories());
-  }
-
-  loadClients() {
-    return this.getClients()
-      .then(clients => {
-        this.clientCurrentRoom.clear();
-
-        for (const raw of clients) {
-          const client = new Client(this, raw);
-          this.clients.set(client.mac, client);
-
-          const room = this.rooms.get(client.roomMac) || client.roomMac;
-          this.clientCurrentRoom.set(client.mac, room);
-
-          this.log.debug(
-            'Found client:',
-            client.name,
-            '@',
-            room,
-            '-',
-            client.fingerprint.name || 'Unknown',
-            '—',
-            client.type!.name,
-          );
+      // Map access points for wifi point matching
+      for (const wifiPoint of this.wifiPoints) {
+        const matchingAP = accessPoints.find(ap => wifiPoint.matchesAccessPoint(ap));
+        if (matchingAP) {
+          wifiPoint.mac = matchingAP.mac;
         }
+      }
+
+      // Update accessory handlers
+      this.globalPresenceHandler?.updateResidents(this.residents);
+      this.globalPresenceHandler?.refresh();
+
+      this.wifiPointHandlers.forEach(handler => {
+        handler.updateResidents(this.residents);
+        handler.refresh();
       });
+
+      // Log presence summary
+      const homeResidents = this.residents.filter(r => r.isHome).map(r => r.name);
+      if (homeResidents.length > 0) {
+        this.log.info(`Residents at home: ${homeResidents.join(', ')}`);
+      } else {
+        this.log.info('No residents detected at home');
+      }
+
+    } catch (error) {
+      this.log.error('Error refreshing device presence:', error);
+    }
   }
 
-  refreshAccessories() {
-    this.removeInvalidAccessories();
-
-    for (const subject of [...this.clients.values(), ...this.clientTypes, ...this.clientRules]) {
-      this.ensureAccessory(subject, null);
-      this.rooms.forEach(room => this.ensureAccessory(subject, room));
+  // Remove unused accessories
+  removeUnusedAccessories() {
+    const expectedAccessories = new Set<string>();
+    
+    // Add global presence if enabled
+    if (this.config.globalPresenceSensor) {
+      expectedAccessories.add(this.api.hap.uuid.generate('global-presence'));
     }
 
-    this.updateAccessories();
-  }
+    // Add wifi point accessories
+    this.wifiPoints.forEach(wifiPoint => {
+      expectedAccessories.add(this.api.hap.uuid.generate(`wifi-point-${wifiPoint.name}`));
+    });
 
-  ensureAccessory(subject: AccessorySubject, room: string | null) {
-    return ensure(
-      this.accessories,
-      subject.accessoryUUID(room),
-      accessory => {
-        this.ensureAccessoryHandler(accessory, subject, room)!;
-        this.api.updatePlatformAccessories([accessory]);
-      },
-      () => {
-        const handler = this.ensureAccessoryHandler(null, subject, room)!;
-        const accessory = handler.accessory;
-        if (accessory) {
-          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-          this.log.debug('Registered new accessory:', accessory.displayName);
-        }
-        return accessory;
-      },
-    );
-  }
-
-  removeInvalidAccessories() {
-    const invalidAccessories: PlatformAccessory[] = [];
-
+    // Remove accessories that are no longer needed
+    const accessoriesToRemove: PlatformAccessory[] = [];
     this.accessories.forEach((accessory, uuid) => {
-      const handler = this.ensureAccessoryHandler(accessory);
-      if (!handler?.valid) {
-        invalidAccessories.push(accessory);
+      if (!expectedAccessories.has(uuid)) {
+        accessoriesToRemove.push(accessory);
       }
     });
 
-    for (const accessory of invalidAccessories) {
-      this.removeAccessory(accessory);
+    if (accessoriesToRemove.length > 0) {
+      this.log.info(`Removing ${accessoriesToRemove.length} unused accessories`);
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, accessoriesToRemove);
+      accessoriesToRemove.forEach(accessory => {
+        this.accessories.delete(accessory.UUID);
+      });
     }
-  }
-
-  updateAccessories() {
-    this.accessories.forEach((accessory, uuid) => {
-      const handler = this.ensureAccessoryHandler(accessory);
-      this.updateAccessoryHandler(handler);
-    });
-  }
-
-  removeAccessory(accessory: PlatformAccessory) {
-    this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-    this.accessories.delete(accessory.UUID);
-    this.accessoryHandlers.delete(accessory.UUID);
-    this.log.debug('Removed accessory:', accessory.displayName);
-  }
-
-  updateAccessoryHandler(handler: AccessoryHandler) {
-    const updated = handler.update();
-
-    this.log[updated ? 'info' : 'debug'](
-      updated ? 'Updated accessory status:' : 'Accessory status unchanged:',
-      `"${handler.displayName}"`,
-      handler.active ? 'active' : 'inactive',
-    );
-
-    return updated;
-  }
-
-  private ensureAccessoryHandler(accessory?: PlatformAccessory | null, subject?: AccessorySubject, room?: string | null) {
-    return ensure(
-      this.accessoryHandlers,
-      accessory ? accessory.UUID : subject!.accessoryUUID(room!),
-      handler => {
-        subject ||= this.clients.get(handler.subject.mac);
-        if (subject) {
-          handler.subject = subject;
-        }
-        if (room) {
-          handler.room = room;
-        }
-      },
-      () => {
-        const handlerClass = this.ACCESSORY_HANDLERS.find(handlerClass => {
-          return accessory ? handlerClass.supportsAccessory(accessory) : handlerClass.supportsSubject(subject!);
-        });
-        return handlerClass ? new handlerClass(this, accessory, subject, room) : null;
-      },
-    );
   }
 }

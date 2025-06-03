@@ -1,5 +1,48 @@
-# Ignore source code
-src
+# Source files
+src/
+tsconfig.json
+nodemon.json
+
+# Development files
+tmp/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests
+test/
+tests/
+spec/
+__tests__/
+
+# Documentation files
+README.md
+LICENSE
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.eslintrc
+.eslintrc.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Coverage
+coverage/
+
+# Environment
+.env*
 
 # ------------- Defaults ------------- #
 
@@ -20,7 +63,6 @@ nodemon.json
 
 # Logs
 logs
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -58,7 +100,6 @@ bower_components
 build/Release
 
 # Dependency directories
-node_modules/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
