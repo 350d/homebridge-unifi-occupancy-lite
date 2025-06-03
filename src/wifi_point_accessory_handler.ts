@@ -50,6 +50,9 @@ export class WifiPointAccessoryHandler extends AccessoryHandler {
       return;
     }
 
+    // Store previous state
+    const previousState = this.wifiPoint.hasResidents;
+
     // Update wifi point presence based on residents
     this.wifiPoint.updatePresence(this.residents);
     
@@ -59,9 +62,11 @@ export class WifiPointAccessoryHandler extends AccessoryHandler {
       this.wifiPoint.hasResidents ? 1 : 0
     );
 
-    // Log status change
-    const status = this.wifiPoint.hasResidents ? 'detected' : 'not detected';
-    this.platform.log.debug(`${this.wifiPoint.name} presence ${status}`);
+    // Log status change only when it changes
+    if (previousState !== this.wifiPoint.hasResidents) {
+      const status = this.wifiPoint.hasResidents ? 'detected' : 'not detected';
+      this.platform.log.info(`${this.wifiPoint.name} presence ${status}`);
+    }
   }
 
   public refresh(): void {

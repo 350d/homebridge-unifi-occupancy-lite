@@ -288,10 +288,26 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
           if (!wifiPoint.mac) {
             wifiPoint.mac = matchingAP.mac;
           }
+          this.log.debug(`WiFi Point ${wifiPoint.name} matched to AP: ${matchingAP.name || matchingAP.mac}`);
+        } else {
+          this.log.warn(`WiFi Point ${wifiPoint.name} (${wifiPoint.mac}) not found in access points list`);
         }
         
         // Update presence based on residents at this access point
+        const previousState = wifiPoint.hasResidents;
         wifiPoint.updatePresence(this.residents);
+        
+        if (previousState !== wifiPoint.hasResidents) {
+          const residentsAtLocation = this.residents
+            .filter(resident => resident.getDevicesAtAccessPoint(wifiPoint.mac || '').length > 0)
+            .map(resident => resident.name);
+          
+          if (wifiPoint.hasResidents) {
+            this.log.info(`WiFi Point ${wifiPoint.name}: occupied by ${residentsAtLocation.join(', ')}`);
+          } else {
+            this.log.info(`WiFi Point ${wifiPoint.name}: now empty`);
+          }
+        }
         
         this.log.debug(`WiFi Point ${wifiPoint.name} (${wifiPoint.mac}): ${wifiPoint.hasResidents ? 'occupied' : 'empty'}`);
       }
