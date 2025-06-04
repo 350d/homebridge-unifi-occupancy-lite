@@ -95,9 +95,18 @@
                   "mac": {
                     "title": "MAC Address",
                     "type": "string",
-                    "required": true,
                     "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
-                    "description": "Device MAC address (format: AA:BB:CC:DD:EE:FF)"
+                    "description": "Device MAC address (format: AA:BB:CC:DD:EE:FF) - preferred method"
+                  },
+                  "ip": {
+                    "title": "IP Address",
+                    "type": "string",
+                    "description": "Device IP address (alternative to MAC, less reliable)"
+                  },
+                  "hostname": {
+                    "title": "Hostname",
+                    "type": "string",
+                    "description": "Device hostname (alternative to MAC/IP)"
                   },
                   "minTrafficAmount": {
                     "title": "Minimum Traffic (KB)",
@@ -106,7 +115,12 @@
                     "description": "Minimum traffic in last 15 minutes to consider device active (0 = any activity)"
                   }
                 },
-                "required": ["name", "mac"]
+                "required": ["name"],
+                "anyOf": [
+                  {"required": ["mac"]},
+                  {"required": ["ip"]},
+                  {"required": ["hostname"]}
+                ]
               }
             }
           },
@@ -129,12 +143,20 @@
             "mac": {
               "title": "Access Point MAC Address",
               "type": "string",
-              "required": true,
               "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
               "description": "MAC address of the access point"
+            },
+            "ip": {
+              "title": "Access Point IP Address",
+              "type": "string",
+              "description": "IP address of the access point (alternative to MAC)"
             }
           },
-          "required": ["name", "mac"]
+          "required": ["name"],
+          "anyOf": [
+            {"required": ["mac"]},
+            {"required": ["ip"]}
+          ]
         }
       }
     },
@@ -183,7 +205,15 @@
               "type": "array", 
               "items": [
                 "residents[].devices[].name",
-                "residents[].devices[].mac",
+                {
+                  "type": "fieldset",
+                  "title": "Device Identification (choose one or more)",
+                  "items": [
+                    "residents[].devices[].mac",
+                    "residents[].devices[].ip", 
+                    "residents[].devices[].hostname"
+                  ]
+                },
                 "residents[].devices[].minTrafficAmount"
               ]
             }
@@ -201,7 +231,14 @@
           "type": "array",
           "items": [
             "wifiPoints[].name",
-            "wifiPoints[].mac"
+            {
+              "type": "fieldset",
+              "title": "Access Point Identification (choose one)",
+              "items": [
+                "wifiPoints[].mac",
+                "wifiPoints[].ip"
+              ]
+            }
           ]
         }
       ]
