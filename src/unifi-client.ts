@@ -200,8 +200,8 @@ export class UniFiLiteClient {
     } else {
       // Use correct endpoint based on controller type
       if (this.controllerType === 'unifi-os') {
-        // UniFi OS uses stat/alluser for clients
-        return this.get(`/api/s/${site}/stat/alluser`);
+        // UniFi OS uses stat/sta for station statistics with access point info
+        return this.get(`/api/s/${site}/stat/sta`);
       } else {
         // Cloud Key and Legacy use clients/active
         return this.get(`/api/s/${site}/clients/active`);
