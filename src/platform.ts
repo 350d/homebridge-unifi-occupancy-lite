@@ -281,14 +281,25 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
       }
 
       // Update WiFi points with current access point information
+      this.log.info(`Processing ${this.wifiPoints.length} WiFi points with ${accessPoints.length} access points`);
+      
+      // Log access points for debugging
+      if (accessPoints.length > 0) {
+        this.log.info(`Access points found: ${accessPoints.map(ap => `${ap.name || 'unnamed'} (${ap.mac})`).join(', ')}`);
+      } else {
+        this.log.warn('No access points returned from UniFi API');
+      }
+      
       for (const wifiPoint of this.wifiPoints) {
+        this.log.info(`Processing WiFi Point: ${wifiPoint.name} (${wifiPoint.mac})`);
+        
         const matchingAP = accessPoints.find(ap => wifiPoint.matchesAccessPoint(ap));
         if (matchingAP) {
           // Ensure wifiPoint has the correct MAC from the access point
           if (!wifiPoint.mac) {
             wifiPoint.mac = matchingAP.mac;
           }
-          this.log.debug(`WiFi Point ${wifiPoint.name} matched to AP: ${matchingAP.name || matchingAP.mac}`);
+          this.log.info(`WiFi Point ${wifiPoint.name} matched to AP: ${matchingAP.name || matchingAP.mac}`);
         } else {
           this.log.warn(`WiFi Point ${wifiPoint.name} (${wifiPoint.mac}) not found in access points list`);
         }
@@ -309,7 +320,7 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
           }
         }
         
-        this.log.debug(`WiFi Point ${wifiPoint.name} (${wifiPoint.mac}): ${wifiPoint.hasResidents ? 'occupied' : 'empty'}`);
+        this.log.info(`WiFi Point ${wifiPoint.name} status: ${wifiPoint.hasResidents ? 'occupied' : 'empty'}`);
       }
 
       // Update accessory handlers
