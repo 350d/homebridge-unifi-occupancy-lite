@@ -262,7 +262,7 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
             }
 
             device.updateFromClient(matchingClient, trafficData);
-            this.log.debug(`Device ${device.name} found and updated - Online: ${device.isOnline}`);
+            this.log.info(`Device ${device.name} (${resident.name}) online at AP: ${device.currentAccessPoint} - ${device.isOnline ? 'ONLINE' : 'OFFLINE'}`);
           } else {
             this.log.debug(`No matching client found for device: ${device.name} (MAC: ${device.mac})`);
           }
@@ -304,15 +304,21 @@ export class UnifiOccupancyPlatform implements DynamicPlatformPlugin {
           this.log.warn(`WiFi Point ${wifiPoint.name} (${wifiPoint.mac}) not found in access points list`);
         }
         
+        // Check which residents have devices at this access point
+        const residentsAtLocation = this.residents
+          .filter(resident => resident.getDevicesAtAccessPoint(wifiPoint.mac || '').length > 0)
+          .map(resident => {
+            const devicesAtAP = resident.getDevicesAtAccessPoint(wifiPoint.mac || '');
+            return `${resident.name} (${devicesAtAP.map(d => d.name).join(', ')})`;
+          });
+        
+        this.log.info(`WiFi Point ${wifiPoint.name}: devices at AP ${wifiPoint.mac}: ${residentsAtLocation.length > 0 ? residentsAtLocation.join('; ') : 'none'}`);
+        
         // Update presence based on residents at this access point
         const previousState = wifiPoint.hasResidents;
         wifiPoint.updatePresence(this.residents);
         
         if (previousState !== wifiPoint.hasResidents) {
-          const residentsAtLocation = this.residents
-            .filter(resident => resident.getDevicesAtAccessPoint(wifiPoint.mac || '').length > 0)
-            .map(resident => resident.name);
-          
           if (wifiPoint.hasResidents) {
             this.log.info(`WiFi Point ${wifiPoint.name}: occupied by ${residentsAtLocation.join(', ')}`);
           } else {
