@@ -73,25 +73,7 @@ export class Device {
     this.isOnline = true;
     this.lastSeen = new Date();
     
-    // Log client structure to find access point fields
-    console.log(`Client data for ${this.name}:`, {
-      mac: client.mac,
-      ip: client.ip,
-      hostname: client.hostname,
-      name: client.name,
-      is_wired: client.is_wired,
-      ap_mac: client.ap_mac,
-      sw_mac: client.sw_mac,
-      network_id: client.network_id,
-      uplink_mac: client.uplink_mac,
-      access_point_mac: client.access_point_mac,
-      ap: client.ap,
-      sw: client.sw,
-      uplink: client.uplink,
-      _uplink_by_ap: client._uplink_by_ap
-    });
-    
-    // Try different fields for access point MAC
+    // Set access point MAC from client data
     this.currentAccessPoint = client.ap_mac || client.sw_mac || client.uplink_mac || client.access_point_mac;
 
     // Update traffic data if available
